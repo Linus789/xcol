@@ -1,0 +1,14 @@
+[package]
+name = "xcol"
+version = "0.1.0"
+edition = "2018"
+authors = ["Linus789"]
+description = "xcol is an alternative to column(1) with better ansi/color support"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/Linus789/xcol"
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = "3.0.0-beta.2"
+console = "0.14.1"

@@ -49,8 +49,7 @@ impl Alignment {
                 .unwrap();
             }
             Alignment::Center => {
-                if space_width & 1 == 0 {
-                    // space_width even
+                if space_width % 2 == 0 {
                     write!(
                         lock,
                         "{0:^width$}{cell}{0:^width$}{output_separator}",
@@ -61,8 +60,7 @@ impl Alignment {
                     )
                     .unwrap();
                 } else {
-                    // space_width odd
-                    let width_left = (space_width - 1) >> 1; // >> 1 => dividing by 2
+                    let width_left = (space_width - 1) / 2;
                     let width_right = width_left + 1;
 
                     write!(
@@ -179,54 +177,32 @@ fn main() {
     }
 
     // Calculate column/cell width
-    let columns_num = lines.first().unwrap().split(&separator).count();
+    let mut max_columns_num = 0usize;
     let mut columns_per_line: Vec<Option<Vec<&str>>> = vec![None; lines.len()];
-    let mut actual_widths: Vec<usize> = Vec::with_capacity(lines.len() * columns_num);
-    let mut column_widths: Vec<usize> = vec![0; columns_num];
 
     for (line_index, line) in lines.iter().enumerate() {
         let column_entries: Vec<&str> = line.split(&separator).collect();
 
-        if column_entries.len() != columns_num {
-            let column_str = |col_num: usize| {
-                if col_num != 1 {
-                    "columns"
-                } else {
-                    "column"
-                }
-            };
-
-            let strip_codes = |s: &str| -> String { console::strip_ansi_codes(s).replace('\r', "") };
-
-            eprintln!("ERROR: Columns are not of equal length");
-            eprintln!(
-                "(line 1, {} {}) {}",
-                columns_num,
-                column_str(columns_num),
-                strip_codes(lines.first().unwrap())
-            );
-            eprintln!(
-                "(line {}, {} {}) {}",
-                line_index + 1,
-                column_entries.len(),
-                column_str(column_entries.len()),
-                strip_codes(line)
-            );
-
-            std::process::exit(1);
+        if column_entries.len() > max_columns_num {
+            max_columns_num = column_entries.len();
         }
 
-        for (column_index, column_entry) in column_entries.iter().enumerate() {
+        columns_per_line[line_index] = Some(column_entries);
+    }
+
+    let mut column_widths: Vec<usize> = vec![0; max_columns_num];
+    let mut cell_widths: Vec<Vec<usize>> = vec![Vec::new(); lines.len()];
+
+    for (line_index, column_entries) in columns_per_line.iter().enumerate() {
+        for (column_index, column_entry) in column_entries.as_ref().unwrap().iter().enumerate() {
             let column_entry_len = console::measure_text_width(column_entry);
 
             if column_widths[column_index] < column_entry_len {
                 column_widths[column_index] = column_entry_len;
             }
 
-            actual_widths.push(column_entry_len);
+            cell_widths[line_index].push(column_entry_len);
         }
-
-        columns_per_line[line_index] = Some(column_entries);
     }
 
     // Print to console
@@ -243,7 +219,7 @@ fn main() {
         .chars()
         .map(Alignment::from)
         .chain(std::iter::repeat(repeat_alignment))
-        .take(columns_num)
+        .take(max_columns_num)
         .collect();
 
     columns_per_line
@@ -252,13 +228,13 @@ fn main() {
         .enumerate()
         .for_each(|(line_index, columns)| {
             for (column_index, column_entry) in columns.iter().enumerate() {
-                let output_separator = if column_index == columns_num - 1 {
+                let output_separator = if column_index == columns.len() - 1 {
                     ""
                 } else {
                     output_separator
                 };
 
-                let actual_width = actual_widths[get_width_index(line_index, column_index, columns_num)];
+                let actual_width = cell_widths[line_index][column_index];
                 let column_width = column_widths[column_index];
                 let space_width = column_width - actual_width;
 
@@ -287,8 +263,4 @@ fn main() {
 
     // Last newline after the color got reset (cursor color did not change otherwise)
     writeln!(lock).unwrap();
-}
-
-fn get_width_index(line_index: usize, column_index: usize, columns_num: usize) -> usize {
-    line_index * columns_num + column_index
 }

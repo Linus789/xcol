@@ -141,28 +141,46 @@ fn main() {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::new("file")
+                .index(1)
+                .about("Input file (default is stdin)")
+                .takes_value(true),
+        )
         .get_matches();
 
     let separator = matches.value_of("separator").unwrap();
     let output_separator = matches.value_of("output-separator").unwrap();
     let alignment = matches.value_of("alignment").unwrap();
+    let file = matches.value_of("file");
 
-    // Read lines from stdin
-    let stdin = io::stdin();
-    let mut stdin = stdin.lock();
-    let mut total_line = String::new();
-    let mut line = String::new();
+    // Read lines
+    let text = if let Some(file_path) = file {
+        if let Ok(text) = std::fs::read_to_string(file_path) {
+            text
+        } else {
+            eprintln!("ERROR: The file '{}' does not exist", file_path);
+            std::process::exit(2);
+        }
+    } else {
+        let stdin = io::stdin();
+        let mut stdin = stdin.lock();
+        let mut text = String::new();
+        let mut line = String::new();
 
-    while let Ok(n_bytes) = stdin.read_to_string(&mut line) {
-        if n_bytes == 0 {
-            break;
+        while let Ok(n_bytes) = stdin.read_to_string(&mut line) {
+            if n_bytes == 0 {
+                break;
+            }
+
+            text.push_str(&line);
+            line.clear();
         }
 
-        total_line.push_str(&line);
-        line.clear();
-    }
+        text
+    };
 
-    let mut lines: Vec<&str> = total_line.lines().collect();
+    let mut lines: Vec<&str> = text.lines().collect();
 
     // Remove/ignore last line if blank
     if let Some(last_line) = lines.last() {

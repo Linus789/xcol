@@ -1,8 +1,12 @@
 #![feature(drain_filter)]
 #![feature(iter_intersperse)]
-use std::io::{self, Read, Write};
+use std::{
+    collections::HashSet,
+    io::{self, Read, Write},
+};
 
-use clap::{App, Arg};
+use clap::{lazy_static::lazy_static, App, Arg};
+use regex::Regex;
 
 #[derive(Clone)]
 enum Alignment {
@@ -125,6 +129,13 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::new("columns-hide")
+                .short('H')
+                .long("columns-hide")
+                .about("Don't print specified columns\nThe special placeholder '-' may be used to hide all unnamed columns")
+                .takes_value(true),
+        )
+        .arg(
             Arg::new("alignment")
                 .short('a')
                 .long("alignment")
@@ -168,6 +179,7 @@ fn main() {
     let output_separator = matches.value_of("output-separator").unwrap();
     let keep_blank = matches.is_present("keep-blank-lines");
     let columns_titles = matches.value_of("columns-titles");
+    let columns_hide = matches.value_of("columns-hide");
     let alignment = matches.value_of("alignment").unwrap();
     let file = matches.value_of("file");
 
@@ -217,30 +229,55 @@ fn main() {
     }
 
     // Add columns titles
-    let header_line: Option<String> = if let Some(header_names) = columns_titles {
-        let multiple_commas_regex = regex::Regex::new(",{2,}").unwrap();
-        Some(
-            multiple_commas_regex
-                .replace_all(header_names, ",")
-                .split(',')
-                .map(|name| format!("{}\x1B[0m", name))
-                .intersperse(separator.to_string())
-                .collect(),
-        )
-    } else {
-        None
-    };
+    let header_line: Option<String> = columns_titles.map(|header_names| {
+        list_items(&list_clean_input(header_names))
+            .map(|name| format!("{}\x1B[0m", name))
+            .intersperse(separator.to_string())
+            .collect()
+    });
 
     if let Some(header_line) = header_line.as_deref() {
         lines.insert(0, header_line);
     }
+
+    // Hidden columns
+    let error_unknown_column_index = |input: &str| {
+        eprintln!("ERROR: Unknown column index ({})", input);
+        std::process::exit(1);
+    };
+
+    let columns_hide: Option<HashSet<usize>> = columns_hide.map(|columns_hide| {
+        list_items(&list_clean_input(columns_hide))
+            .map(|x| {
+                let human_index = x.parse::<usize>().unwrap_or_else(|_| error_unknown_column_index(x));
+
+                if human_index == 0 {
+                    error_unknown_column_index(x);
+                }
+
+                human_index - 1
+            })
+            .collect()
+    });
 
     // Calculate column/cell width
     let mut max_columns_num = 0usize;
     let mut columns_per_line: Vec<Option<Vec<&str>>> = vec![None; lines.len()];
 
     for (line_index, line) in lines.iter().enumerate() {
-        let column_entries: Vec<&str> = line.split(separator).collect();
+        let column_entries: Vec<&str> = line
+            .split(separator)
+            .enumerate()
+            .filter_map(|(column_index, column_entry)| {
+                if let Some(columns_hide) = &columns_hide {
+                    if columns_hide.contains(&column_index) {
+                        return None;
+                    }
+                }
+
+                Some(column_entry)
+            })
+            .collect();
 
         if column_entries.len() > max_columns_num {
             max_columns_num = column_entries.len();
@@ -322,4 +359,18 @@ fn main() {
 
     // Last newline after the color got reset (cursor color did not change otherwise)
     writeln!(lock).unwrap();
+}
+
+lazy_static! {
+    static ref MULTIPLE_COMMAS_REGEX: Regex = Regex::new(",{2,}").unwrap();
+    static ref LIST_IDENTIFIER_CHAR: char = ',';
+    static ref LIST_IDENTIFIER_STR: &'static str = ",";
+}
+
+fn list_clean_input(list: &str) -> std::borrow::Cow<'_, str> {
+    MULTIPLE_COMMAS_REGEX.replace_all(list.trim_matches(*LIST_IDENTIFIER_CHAR), *LIST_IDENTIFIER_STR)
+}
+
+fn list_items(list: &str) -> std::str::Split<'_, char> {
+    list.split(*LIST_IDENTIFIER_CHAR)
 }

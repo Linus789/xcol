@@ -1,4 +1,5 @@
 #![feature(drain_filter)]
+#![feature(iter_intersperse)]
 use std::io::{self, Read, Write};
 
 use clap::{App, Arg};
@@ -117,6 +118,13 @@ fn main() {
                 .about("Preserve whitespace-only lines in the input"),
         )
         .arg(
+            Arg::new("columns-titles")
+                .short('N')
+                .long("columns-titles")
+                .about("Specify the columns titles by comma separated list of titles")
+                .takes_value(true),
+        )
+        .arg(
             Arg::new("alignment")
                 .short('a')
                 .long("alignment")
@@ -159,6 +167,7 @@ fn main() {
     let separator = matches.value_of("separator").unwrap();
     let output_separator = matches.value_of("output-separator").unwrap();
     let keep_blank = matches.is_present("keep-blank-lines");
+    let columns_titles = matches.value_of("columns-titles");
     let alignment = matches.value_of("alignment").unwrap();
     let file = matches.value_of("file");
 
@@ -207,12 +216,31 @@ fn main() {
         return;
     }
 
+    // Add columns titles
+    let header_line: Option<String> = if let Some(header_names) = columns_titles {
+        let multiple_commas_regex = regex::Regex::new(",{2,}").unwrap();
+        Some(
+            multiple_commas_regex
+                .replace_all(header_names, ",")
+                .split(',')
+                .map(|name| format!("{}\x1B[0m", name))
+                .intersperse(separator.to_string())
+                .collect(),
+        )
+    } else {
+        None
+    };
+
+    if let Some(header_line) = header_line.as_deref() {
+        lines.insert(0, header_line);
+    }
+
     // Calculate column/cell width
     let mut max_columns_num = 0usize;
     let mut columns_per_line: Vec<Option<Vec<&str>>> = vec![None; lines.len()];
 
     for (line_index, line) in lines.iter().enumerate() {
-        let column_entries: Vec<&str> = line.split(&separator).collect();
+        let column_entries: Vec<&str> = line.split(separator).collect();
 
         if column_entries.len() > max_columns_num {
             max_columns_num = column_entries.len();

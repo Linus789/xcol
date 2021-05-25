@@ -1,3 +1,4 @@
+#![feature(drain_filter)]
 use std::io::{self, Read, Write};
 
 use clap::{App, Arg};
@@ -110,6 +111,12 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::new("keep-blank-lines")
+                .short('L')
+                .long("keep-blank-lines")
+                .about("Preserve whitespace-only lines in the input"),
+        )
+        .arg(
             Arg::new("alignment")
                 .short('a')
                 .long("alignment")
@@ -151,6 +158,7 @@ fn main() {
 
     let separator = matches.value_of("separator").unwrap();
     let output_separator = matches.value_of("output-separator").unwrap();
+    let keep_blank = matches.is_present("keep-blank-lines");
     let alignment = matches.value_of("alignment").unwrap();
     let file = matches.value_of("file");
 
@@ -182,12 +190,17 @@ fn main() {
 
     let mut lines: Vec<&str> = text.lines().collect();
 
-    // Remove/ignore last line if blank
-    if let Some(last_line) = lines.last() {
-        if console::strip_ansi_codes(last_line).trim().is_empty() {
-            lines.pop().unwrap();
+    if keep_blank {
+        // Remove only last line if blank
+        if let Some(last_line) = lines.last() {
+            if console::strip_ansi_codes(last_line).trim().is_empty() {
+                lines.pop().unwrap();
+            }
         }
-    }
+    } else {
+        // Remove blank lines
+        lines.drain_filter(|line| console::strip_ansi_codes(line).trim().is_empty());
+    };
 
     // Stop if no lines
     if lines.is_empty() {

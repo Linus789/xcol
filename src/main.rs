@@ -1,187 +1,27 @@
 #![feature(drain_filter)]
 #![feature(iter_intersperse)]
+mod alignment;
+mod cli;
+
 use std::{
     collections::HashSet,
     io::{self, Read, Write},
 };
 
-use clap::{lazy_static::lazy_static, App, Arg};
+use alignment::Alignment;
+use clap::lazy_static::lazy_static;
 use regex::Regex;
-
-#[derive(Clone)]
-enum Alignment {
-    Left,
-    Right,
-    Center,
-}
-
-impl Alignment {
-    const IDENTIFIERS: [char; 9] = ['l', 'L', '<', 'r', 'R', '>', 'c', 'C', '^'];
-    const LEFT_IDENTIFIER: [char; 3] = ['l', 'L', '<'];
-    const RIGHT_IDENTIFIER: [char; 3] = ['r', 'R', '>'];
-    const CENTER_IDENTIFIER: [char; 3] = ['c', 'C', '^'];
-
-    fn from(alignment: char) -> Self {
-        match alignment {
-            c if Alignment::LEFT_IDENTIFIER.contains(&c) => Alignment::Left,
-            c if Alignment::RIGHT_IDENTIFIER.contains(&c) => Alignment::Right,
-            c if Alignment::CENTER_IDENTIFIER.contains(&c) => Alignment::Center,
-            _ => unreachable!(),
-        }
-    }
-
-    fn write_cell(&self, lock: &mut std::io::StdoutLock, cell: &str, output_separator: &str, space_width: usize) {
-        match &self {
-            Alignment::Left => {
-                write!(
-                    lock,
-                    "{cell}{:<width$}{output_separator}",
-                    "",
-                    cell = cell,
-                    output_separator = output_separator,
-                    width = space_width
-                )
-                .unwrap();
-            }
-            Alignment::Right => {
-                write!(
-                    lock,
-                    "{:>width$}{cell}{output_separator}",
-                    "",
-                    cell = cell,
-                    output_separator = output_separator,
-                    width = space_width
-                )
-                .unwrap();
-            }
-            Alignment::Center => {
-                if space_width % 2 == 0 {
-                    write!(
-                        lock,
-                        "{0:^width$}{cell}{0:^width$}{output_separator}",
-                        "",
-                        cell = cell,
-                        output_separator = output_separator,
-                        width = space_width / 2
-                    )
-                    .unwrap();
-                } else {
-                    let width_left = (space_width - 1) / 2;
-                    let width_right = width_left + 1;
-
-                    write!(
-                        lock,
-                        "{0:^width_left$}{cell}{0:^width_right$}{output_separator}",
-                        "",
-                        cell = cell,
-                        output_separator = output_separator,
-                        width_left = width_left,
-                        width_right = width_right
-                    )
-                    .unwrap();
-                }
-            }
-        }
-    }
-}
 
 fn main() {
     // Read cli params
-    let align_examples = [
-        "Examples:",
-        "\nAll columns right: xcol --alignment r",
-        "\nLeft, center, right: xcol --alignment lcr",
-    ]
-    .concat();
-
-    let matches = App::new("xcol")
-        .version("0.1")
-        .author("Linus789")
-        .arg(
-            Arg::new("separator")
-                .short('s')
-                .long("separator")
-                .default_value(" ")
-                .hide_default_value(true)
-                .about("Specify the columns delimiter for table output (default is whitespace)")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("output-separator")
-                .short('o')
-                .long("output-separator")
-                .default_value(" ")
-                .hide_default_value(true)
-                .about("Specify the possible input item delimiters (default is whitespace)")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("keep-blank-lines")
-                .short('L')
-                .long("keep-blank-lines")
-                .about("Preserve whitespace-only lines in the input"),
-        )
-        .arg(
-            Arg::new("columns-titles")
-                .short('N')
-                .long("columns-titles")
-                .about("Specify the columns titles by comma separated list of titles")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("columns-hide")
-                .short('H')
-                .long("columns-hide")
-                .about("Don't print specified columns\nThe special placeholder '-' may be used to hide all unnamed columns")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("alignment")
-                .short('a')
-                .long("alignment")
-                .default_value("l")
-                .validator(|s| {
-                    if s.chars().all(|c| Alignment::IDENTIFIERS.contains(&c)) {
-                        Ok(())
-                    } else {
-                        Err([
-                            &format!(
-                                "The alignment can only contain the following characters: {}",
-                                Alignment::IDENTIFIERS.iter().collect::<String>()
-                            ),
-                            "\n\n",
-                            &align_examples,
-                        ]
-                        .concat())
-                    }
-                })
-                .hide_default_value(true)
-                .about(
-                    &[
-                        "Specify a column's alignment, may be repeated (default is left)",
-                        "\nUse 'l', 'r', 'c' for left, right, center alignment",
-                        "\n\n",
-                        &align_examples,
-                    ]
-                    .concat(),
-                )
-                .takes_value(true),
-        )
-        .arg(
-            Arg::new("file")
-                .index(1)
-                .about("Input file (default is stdin)")
-                .takes_value(true),
-        )
-        .get_matches();
-
+    let matches = cli::get_cli_params();
+    let file = matches.value_of("file");
     let separator = matches.value_of("separator").unwrap();
+    let alignment = matches.value_of("alignment").unwrap();
     let output_separator = matches.value_of("output-separator").unwrap();
     let keep_blank = matches.is_present("keep-blank-lines");
     let columns_titles = matches.value_of("columns-titles");
     let columns_hide = matches.value_of("columns-hide");
-    let alignment = matches.value_of("alignment").unwrap();
-    let file = matches.value_of("file");
 
     // Read lines
     let text = if let Some(file_path) = file {

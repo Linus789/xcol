@@ -3,14 +3,10 @@
 mod alignment;
 mod cli;
 
-use std::{
-    collections::HashSet,
-    io::{self, Read, Write},
-};
+use std::io::{self, Read, Write};
 
 use alignment::Alignment;
-use clap::lazy_static::lazy_static;
-use regex::Regex;
+use cli::{ColumnsHide, ColumnsTitles};
 
 fn main() {
     // Read cli params
@@ -69,38 +65,20 @@ fn main() {
     }
 
     // Add columns titles
-    let header_line: Option<String> = columns_titles.map(|header_names| {
-        list_items(&list_clean_input(header_names))
-            .map(|name| format!("{}\x1B[0m", name))
-            .intersperse(separator.to_string())
-            .collect()
-    });
+    let columns_titles: Option<ColumnsTitles> =
+        columns_titles.map(|header_names| ColumnsTitles::from(header_names, separator));
 
-    if let Some(header_line) = header_line.as_deref() {
-        lines.insert(0, header_line);
+    if let Some(columns_titles) = columns_titles.as_ref() {
+        lines.insert(0, &columns_titles.title_line);
     }
 
     // Hidden columns
-    let error_unknown_column_index = |input: &str| {
-        eprintln!("ERROR: Unknown column index ({})", input);
-        std::process::exit(1);
-    };
+    let columns_hide = ColumnsHide::from(columns_hide);
 
-    let columns_hide: Option<HashSet<usize>> = columns_hide.map(|columns_hide| {
-        list_items(&list_clean_input(columns_hide))
-            .map(|x| {
-                let human_index = x.parse::<usize>().unwrap_or_else(|_| error_unknown_column_index(x));
-
-                if human_index == 0 {
-                    error_unknown_column_index(x);
-                }
-
-                human_index - 1
-            })
-            .collect()
-    });
-
-    // Calculate column/cell width
+    // Preprocess columns
+    // * Split into columns
+    // * Calculate column/cell width
+    // * Hide columns if necessary
     let mut max_columns_num = 0usize;
     let mut columns_per_line: Vec<Option<Vec<&str>>> = vec![None; lines.len()];
 
@@ -109,10 +87,22 @@ fn main() {
             .split(separator)
             .enumerate()
             .filter_map(|(column_index, column_entry)| {
-                if let Some(columns_hide) = &columns_hide {
-                    if columns_hide.contains(&column_index) {
-                        return None;
+                match &columns_hide {
+                    ColumnsHide::Indices(indices) => {
+                        if indices.contains(&column_index) {
+                            return None;
+                        }
                     }
+                    ColumnsHide::Unnamed => {
+                        if let Some(columns_titles) = columns_titles.as_ref() {
+                            if column_index >= columns_titles.named_columns {
+                                return None;
+                            }
+                        } else {
+                            return None;
+                        }
+                    }
+                    _ => (),
                 }
 
                 Some(column_entry)
@@ -124,6 +114,11 @@ fn main() {
         }
 
         columns_per_line[line_index] = Some(column_entries);
+    }
+
+    // Stop if no columns
+    if max_columns_num == 0 {
+        return;
     }
 
     let mut column_widths: Vec<usize> = vec![0; max_columns_num];
@@ -199,18 +194,4 @@ fn main() {
 
     // Last newline after the color got reset (cursor color did not change otherwise)
     writeln!(lock).unwrap();
-}
-
-lazy_static! {
-    static ref MULTIPLE_COMMAS_REGEX: Regex = Regex::new(",{2,}").unwrap();
-    static ref LIST_IDENTIFIER_CHAR: char = ',';
-    static ref LIST_IDENTIFIER_STR: &'static str = ",";
-}
-
-fn list_clean_input(list: &str) -> std::borrow::Cow<'_, str> {
-    MULTIPLE_COMMAS_REGEX.replace_all(list.trim_matches(*LIST_IDENTIFIER_CHAR), *LIST_IDENTIFIER_STR)
-}
-
-fn list_items(list: &str) -> std::str::Split<'_, char> {
-    list.split(*LIST_IDENTIFIER_CHAR)
 }

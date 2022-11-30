@@ -1,6 +1,8 @@
 # xcol
 xcol is an alternative to [column(1)](https://man7.org/linux/man-pages/man1/column.1.html) with better ansi/color support.
 
+Update: I found out `column` didn’t work because I had `LC_ALL=C` set.
+
 ## Installation
 In order to install, just run the following command
 

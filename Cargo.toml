@@ -12,4 +12,4 @@ categories = ["command-line-utilities"]
 [dependencies]
 clap = "3.0.0-beta.2"
 console = "0.14.1"
-regex = "1.5.4"
+regex = "1.7.0"
